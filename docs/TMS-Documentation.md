@@ -328,9 +328,20 @@ the server.
 
 ## 6. Testing
 
-There is currently no automated test suite: `backend/pom.xml` includes
-`spring-boot-starter-test` but no test classes exist, and `frontend/package.json` has no test
-runner configured. Verify functionality manually as described below.
+Automated coverage exists at three levels; see [`docs/TEST-PLAN.md`](TEST-PLAN.md) for the full
+strategy, test case tables, and traceability:
+
+```bash
+cd backend && mvn test                                              # JUnit 5 + MockMvc
+cd frontend && npm install && npm test                              # Vitest + React Testing Library
+cd frontend && npx playwright install chromium && npm run test:e2e  # Playwright, one-time browser install
+```
+
+`npm run test:e2e` drives a real Chromium browser against real, dedicated backend and frontend
+instances (`frontend/playwright.config.js` starts both automatically), with the backend's CSV
+path overridden to a scratch file under `backend/target/e2e-data/` — it never touches the real
+seed data at `backend/src/main/resources/data/transactions.csv`. The manual checklist below is
+for anything not yet covered by an automated layer.
 
 ### Backend — manual API verification (curl)
 
@@ -381,10 +392,6 @@ With both servers running, open `http://localhost:5173`:
 - **Error handling** — stop the backend, reload the frontend, and confirm it shows a fetch-error
   state instead of crashing or hanging silently.
 
-### Adding automated tests (future work)
-
-If/when automated coverage is added: backend tests would live under
-`backend/src/test/java/com/example/tms/` using the already-declared
-`spring-boot-starter-test` dependency (JUnit 5 + MockMvc), run via `mvn test`; frontend tests
-would need a runner added to `frontend/package.json` (e.g. Vitest) with a corresponding `npm
-test` script, as none exists today.
+Still manual-only per `docs/TEST-PLAN.md`: bulk select/export/delete, modal-dismissal (Cancel /
+`Escape` / click-outside), and the backend-down error state above — the e2e suite doesn't cover
+these yet.

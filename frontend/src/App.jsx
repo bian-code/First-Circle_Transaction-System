@@ -367,7 +367,6 @@ function TransactionModal({ initialData, onClose, onSuccess }) {
               type="text"
               name="accountNumber"
               inputMode="numeric"
-              maxLength={12}
               placeholder="e.g. 123456789012"
               value={form.accountNumber}
               onChange={handleAccountNumberChange}

@@ -22,13 +22,14 @@ focuses on what to verify, not how to run the app.
 
 ## 3. Test Strategy
 
-Three levels, from fastest/most isolated to broadest:
+Four levels, from fastest/most isolated to broadest:
 
 | Level | What it exercises | Tooling |
 |---|---|---|
 | Unit | Pure logic and the service layer against a temp CSV file — no Spring context, no HTTP | JUnit 5 + AssertJ (`backend/src/test/.../service`, `.../model`) |
 | Integration (component) | Controller routing, request validation, JSON (de)serialization, and error mapping, with the service mocked | JUnit 5 + Spring `@WebMvcTest`/MockMvc (`backend/src/test/.../controller`); React component rendering/interaction with `fetch` mocked | Vitest + React Testing Library (`frontend/src/**/*.test.jsx`) |
-| Manual / exploratory | End-to-end flows through a real browser and a real running backend, and anything not worth automating yet | curl, Chrome |
+| End-to-end (browser) | Real Chromium browser driving the real Vite dev server, the real Vite proxy, a real Spring Boot backend, and real CSV persistence — the one layer that can catch integration bugs the mocked layers above can't | Playwright (`frontend/e2e/*.spec.js`), run against an isolated scratch CSV so it never touches the real seed data |
+| Manual / exploratory | Anything not worth automating yet, and a final release smoke walk | curl, Chrome |
 
 See [Section 7](#7-traceability) for exactly which cases each automated test file covers.
 
@@ -38,15 +39,21 @@ See [Section 7](#7-traceability) for exactly which cases each automated test fil
   `spring-boot-starter-test` dependency in `backend/pom.xml`; no extra install needed.
 - Node 18+, npm 9+ — Vitest, React Testing Library, `@testing-library/user-event`, and jsdom,
   added as devDependencies in `frontend/package.json`.
+- `@playwright/test`, also a `frontend/package.json` devDependency, drives a real Chromium browser
+  for the e2e suite. One-time setup: `npx playwright install chromium` (downloads the browser
+  binary; not needed again unless Playwright's version changes).
 - curl (or any HTTP client) for manual API checks; Chrome for manual UI checks.
 - No database, mocking server, or CI system is involved — the backend's own MockMvc test slice
   and the service's temp-directory tests are self-contained and don't touch the real
-  `backend/src/main/resources/data/transactions.csv`.
+  `backend/src/main/resources/data/transactions.csv`. The e2e suite is similarly isolated: its
+  `playwright.config.js` starts the backend with `tms.csv.file-path` overridden to a scratch file
+  under `backend/target/e2e-data/`, so it can never write into the real seed data either.
 
 Run everything with:
 ```bash
 cd backend && mvn test
 cd frontend && npm install && npm test
+cd frontend && npx playwright install chromium && npm run test:e2e   # one-time browser install, then e2e
 ```
 
 ## 5. Entry / Exit Criteria
@@ -55,7 +62,7 @@ cd frontend && npm install && npm test
 locally.
 
 **Exit (per release):**
-- `mvn test` and `npm test` both pass with zero failures.
+- `mvn test`, `npm test`, and `npm run test:e2e` all pass with zero failures.
 - The manual-only cases in [Section 7](#7-traceability) have been walked through once in a
   browser against a freshly started backend.
 - Any new endpoint, page, or field added since the last release has corresponding rows added to
@@ -136,11 +143,14 @@ locally.
 | `frontend/src/exportUtils.test.js` | UI-09 |
 | `frontend/src/pages/DashboardPage.test.jsx` | UI-11–13, UI-18 |
 | `frontend/src/pages/CustomersPage.test.jsx` | UI-14–16, UI-18 |
+| `frontend/e2e/transactions.spec.js` | UI-01, UI-02, UI-03, UI-04, UI-05 (as true end-to-end: real browser, real backend, persistence proven via page reload) |
+| `frontend/e2e/account-number-validation.spec.js` | UI-02b, end-to-end (stripping/capping/disabled-Submit in a real browser, plus a real 12-digit save round-trip) |
+| `frontend/e2e/dashboard.spec.js` | UI-11/12, end-to-end |
+| `frontend/e2e/customers.spec.js` | UI-14, UI-16, end-to-end |
+| `frontend/e2e/export.spec.js` | UI-09, end-to-end (download wiring only — see `exportUtils.test.js` for content checks) |
 
-**Manual-only** (no automated coverage yet): UI-08, UI-10, UI-17, DATA-01, DATA-03, DATA-05, and
-a full browser walk against the real backend as a release smoke test — the frontend tests above
-run against a mocked `fetch`, not the real API, and the backend tests above never write to the
-real `transactions.csv`.
+**Manual-only** (no automated coverage yet): UI-08, UI-10, UI-17, DATA-01, DATA-03, DATA-05, and a
+full browser walk against the real backend as a release smoke test.
 
 ## 8. Risks & Known Limitations
 
@@ -150,9 +160,15 @@ real `transactions.csv`.
   without `page`/`size`, so with more than 20 transactions the UI silently shows only the most
   recent-looking 20 (per the API's default), even though more data exists and is reachable
   directly via the API. See `docs/TMS-Documentation.md` for details.
-- **No true end-to-end tests.** The frontend suite (Vitest + jsdom) exercises component logic
-  with a mocked `fetch`, not a real browser talking to a real backend — it won't catch things
-  like the Vite proxy misconfiguration or actual CORS behavior. Consider adding Playwright/
-  Cypress e2e tests if this gap becomes a real source of regressions.
+- **End-to-end coverage is smoke-level, not exhaustive.** `frontend/e2e/*.spec.js` (Playwright)
+  covers the critical paths — CRUD persistence, account number validation, Dashboard/Customers
+  reflecting real data, and export download wiring — but deliberately doesn't re-run every case
+  in [Section 6.2](#62-ui) at the browser level (that's what the cheaper Vitest+RTL suite is for).
+  Bulk actions (UI-08), modal-dismissal (UI-10), and the backend-down error state (UI-17) remain
+  manual-only.
+- **The e2e suite runs serially against one shared backend/CSV instance.** `playwright.config.js`
+  sets `fullyParallel: false` because there is only one backend process and one scratch CSV file
+  for the whole suite — safe, but means e2e runtime grows linearly as more specs are added. Revisit
+  (e.g. a fresh backend per worker) if that becomes slow.
 - **No CI wiring.** This project is not currently a git repository with a CI pipeline, so
   `mvn test` / `npm test` must be run manually before each release — nothing enforces it today.

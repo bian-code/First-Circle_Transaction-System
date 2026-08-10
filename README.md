@@ -504,9 +504,22 @@ a1b2c3d4-0003-0003-0003-000000000003,2025-03-10,5544-3322-1100,Linda Brown,75.00
 
 ## 8. Testing
 
-This project does not currently include an automated test suite — `backend/pom.xml` includes
-`spring-boot-starter-test` but no test classes exist yet, and `frontend/package.json` has no test
-runner configured. Until automated tests are added, verify functionality manually as follows.
+Automated tests exist at three levels — backend unit/controller tests, frontend component tests,
+and end-to-end browser tests — plus a manual checklist for anything not covered yet. See
+[`docs/TEST-PLAN.md`](docs/TEST-PLAN.md) for the full test plan and traceability.
+
+```bash
+cd backend && mvn test                                          # JUnit + MockMvc
+cd frontend && npm install && npm test                          # Vitest + React Testing Library
+cd frontend && npx playwright install chromium && npm run test:e2e  # Playwright (one-time browser install)
+```
+
+The e2e suite starts its own backend and frontend instances automatically (see
+`frontend/playwright.config.js`) with the backend's CSV path overridden to a scratch file under
+`backend/target/e2e-data/`, so it never touches the real seed data at
+`backend/src/main/resources/data/transactions.csv`. It replaces manual browser walkthroughs of the
+core flows (add/edit/delete, search, account number validation, Dashboard/Customers, export) —
+the checklist below is for anything still worth a manual pass.
 
 ### Backend — manual API checks with curl
 
