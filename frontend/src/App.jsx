@@ -246,8 +246,9 @@ function StatCards({ transactions }) {
 
 // ─── ExportMenu ───────────────────────────────────────────────────────────────
 
-function ExportMenu({ rows }) {
-  const [open, setOpen] = useState(false)
+function ExportMenu({ statusFilter, searchQuery, sort }) {
+  const [open, setOpen]         = useState(false)
+  const [exporting, setExporting] = useState(false)
   const ref = useRef(null)
 
   useEffect(() => {
@@ -259,19 +260,71 @@ function ExportMenu({ rows }) {
 
   const timestamp = () => new Date().toISOString().slice(0, 10)
 
+  /**
+   * Fetches every transaction that matches the current filters from the API,
+   * bypassing pagination, then returns the sorted rows ready for export.
+   */
+  const fetchAllForExport = async () => {
+    // First request: page 0 with size 1 just to learn totalItems
+    const probe = await fetch(`${API_URL}?page=0&size=1`)
+    if (!probe.ok) throw new Error(`Server error: ${probe.status}`)
+    const { totalItems } = await probe.json()
+
+    if (totalItems === 0) return []
+
+    // Second request: fetch everything in one shot
+    const params = new URLSearchParams({ page: 0, size: totalItems })
+    if (statusFilter) params.set('status', statusFilter)
+    const res = await fetch(`${API_URL}?${params}`)
+    if (!res.ok) throw new Error(`Server error: ${res.status}`)
+    const { data } = await res.json()
+
+    // Apply the same client-side search + sort the table currently shows
+    return sortAndFilter(data ?? [], sort, statusFilter, searchQuery)
+  }
+
+  const handleExport = async (format) => {
+    setOpen(false)
+    setExporting(true)
+    try {
+      const rows = await fetchAllForExport()
+      if (rows.length === 0) return
+      const name = `transactions-${timestamp()}`
+      format === 'csv' ? exportCsv(rows, name) : exportXlsx(rows, name)
+    } catch (err) {
+      // Surface error to the console; the UI has no toast reference here —
+      // the parent can add one if needed, but a silent failure is worse.
+      console.error('Export failed:', err)
+    } finally {
+      setExporting(false)
+    }
+  }
+
   return (
     <div className="export-menu" ref={ref}>
-      <button className="btn-toolbar" onClick={() => setOpen((v) => !v)} aria-haspopup="true" aria-expanded={open}>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
-        </svg>
-        Export
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+      <button
+        className="btn-toolbar"
+        onClick={() => setOpen((v) => !v)}
+        aria-haspopup="true"
+        aria-expanded={open}
+        disabled={exporting}
+      >
+        {exporting ? (
+          <span className="export-spinner" aria-hidden="true" />
+        ) : (
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+        )}
+        {exporting ? 'Preparing…' : 'Export'}
+        {!exporting && (
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+        )}
       </button>
       {open && (
         <div className="export-dropdown" role="menu">
-          <button role="menuitem" onClick={() => { exportCsv(rows, `transactions-${timestamp()}`); setOpen(false) }}>Download CSV</button>
-          <button role="menuitem" onClick={() => { exportXlsx(rows, `transactions-${timestamp()}`); setOpen(false) }}>Download Excel (.xlsx)</button>
+          <button role="menuitem" onClick={() => handleExport('csv')}>Download CSV</button>
+          <button role="menuitem" onClick={() => handleExport('xlsx')}>Download Excel (.xlsx)</button>
         </div>
       )}
     </div>
@@ -626,7 +679,7 @@ function TransactionTable({
             )}
           </div>
 
-          <ExportMenu rows={visible} />
+          <ExportMenu statusFilter={statusFilter} searchQuery={searchQuery} sort={sort} />
         </div>
       </div>
 
